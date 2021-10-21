@@ -85,3 +85,9 @@ BATTERY_CHARGER_STATUS_5_REG: {
 ```
 
 Some semi-manual preprocessing may be required before using this tool, personally I've found the multi-cursor feature in vscode to be very useful, as well as regex-based find and replace. You could also do this with sed / grep or whatever your preferred method is.
+
+The logfile must log register read/writes in the format
+```c
+addr = 0x123, val = 0x123
+```
+Alternatively hack your format into `process_logs()`.

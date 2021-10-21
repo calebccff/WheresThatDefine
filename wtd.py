@@ -34,6 +34,9 @@ def genmask(left: int, right: int):
 def genmask_mask(mask: tuple):
      return genmask(mask[0], mask[1])
 
+"""
+Parses the header file with REGEX to find macros we're interested in.
+"""
 def map_header(header_lines):
      header_map = {}
      """
@@ -62,6 +65,11 @@ def map_header(header_lines):
                     header_map[list(header_map.keys())[-1]]["masks"].append({"name": name.group(0), "mask": (int(mask.group(1)), int(mask.group(2)))})
      return header_map
 
+"""
+Convert a value to a list of bitwise ORs like you would see in the source code
+using a particular set of bits, also applies masks and shows the unshifted result, e.g.
+0x08 -> "DCP_CHARGER_BIT|APSD_RESULT_STATUS_MASK=0x8"
+"""
 def convert_val(val, register_data):
      out_str = ""
      for bit in register_data["bits"]:
@@ -73,6 +81,10 @@ def convert_val(val, register_data):
                + hex(val & genmask_mask(mask["mask"]) >> mask["mask"][1]) + "|"
      return out_str[:-1]
 
+"""
+Iterate through a logfile, find matches of "addr = xyz" and "val = xyz"
+and replace the literal values with the register defines
+"""
 def process_logs(logfile_lines, header):
      re_hex = "(0[xX][a-fA-F\d]+)"
      match_addr = re.compile(f"(addr\s=\s){re_hex}", re.MULTILINE)
@@ -114,6 +126,7 @@ def main():
      f.write("\n".join(fixed_log))
      f.flush()
      f.close()
+     print(f"\n\nDONE!\nProcessed logs written to '{args.outfile}'")
 
 if __name__ == "__main__":
      main()
