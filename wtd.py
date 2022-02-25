@@ -79,7 +79,9 @@ def convert_val(val, register_data):
           if val & genmask_mask(mask["mask"]):
                out_str += mask["name"] + "=" \
                + hex(val & genmask_mask(mask["mask"]) >> mask["mask"][1]) + "|"
-     return out_str[:-1]
+     if len(out_str) == 0:
+         return out_str
+     return out_str[:-1] + "=" + hex(val)
 
 """
 Iterate through a logfile, find matches of "addr = xyz" and "val = xyz"
