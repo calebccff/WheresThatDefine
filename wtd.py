@@ -4,8 +4,8 @@ import re, argparse
 
 def parse_args():
      parser = argparse.ArgumentParser(description='Convert logs which print macro values to the macro names')
-     parser.add_argument('logfile',
-                         help='Path to logfile')
+     # parser.add_argument('logfile',
+     #                     help='Path to logfile')
      parser.add_argument('header',
                          help='path to the header file containing #defines.'
                               'Supported defines include literals and BIT()s.')
@@ -58,6 +58,8 @@ def map_header(header_lines):
           if name:
                if value:
                     val = num_to_int(value.group(0))
+                    if val < 0x1000:
+                         continue
                     header_map[name.group(0)] = {"value": val, "bits": [], "masks": []}
                elif bit:
                     header_map[list(header_map.keys())[-1]]["bits"].append({"name": name.group(0), "bit": int(bit.group(0))})
@@ -87,14 +89,16 @@ and replace the literal values with the register defines
 """
 def process_logs(logfile_lines, header):
      re_hex = "(0[xX][a-fA-F\d]+)"
-     match_addr = re.compile(f"(addr\s=\s){re_hex}", re.MULTILINE)
-     match_val = re.compile(f"(val\s=\s){re_hex}", re.MULTILINE)
+     match_addr = re.compile(f"(addr\s?=\s?){re_hex}", re.MULTILINE)
+     match_val = re.compile(f"(val\s?=\s?){re_hex}", re.MULTILINE)
+     match_mask = re.compile(f"(mask\s?=\s?){re_hex}", re.MULTILINE)
      #[ 7292.713722] qcom,qpnp-smb2 c440000.qcom,spmi:qcom,pmi8998@2:qcom,qpnp-smb2: smblib_read(addr = 0x100d, val = 0x70)
 
      for i in range(len(logfile_lines)):
           line = logfile_lines[i]
           addr = match_addr.search(line)
           val = match_val.search(line)
+          mask = match_mask.search(line)
           if not addr or not val:
                continue
           addr = addr.group(2)
@@ -108,22 +112,73 @@ def process_logs(logfile_lines, header):
                     val_str = convert_val(val_int, header[key])
                     if val_str:
                          logfile_lines[i] = logfile_lines[i].replace(f"val = {val}", f"val = {val_str}")
+                    if mask:
+                         mask_str = convert_val(num_to_int(mask.group(2)), header[key])
+                         if mask_str:
+                              logfile_lines[i] = logfile_lines[i].replace(f"mask = {mask}", f"mask = {mask_str}")
                # elif header[key]["value"] == val_int:
                #      logfile_lines[i] = logfile_lines[i].replace(f"val = {val}", f"val = {key}")
      return logfile_lines
 
 
+def generate_enums(header):
+     out = "\n"
+     out += "use bitflags::bitflags;\n"
+     out += "use std::fmt;\n\n"
+     out += "pub struct Register {\n"
+     out += "    pub addr: u16,\n"
+     out += "    pub value: u8,\n"
+     out += "}\n\n"
+
+     for key in header.keys():
+          if len(header[key]["bits"]) == 0 and len(header[key]["masks"]) == 0:
+               continue
+          name = key.replace("_REG", "")
+          if name == key:
+               name += "_VAL"
+          out += f"bitflags! {{\n"
+          out += f"    pub struct {name}: u8 {{\n"
+          for bit in header[key]["bits"]:
+               out += f"        const {bit['name']:48s} = {1 << bit['bit']:#010b};\n"
+          for mask in header[key]["masks"]:
+               out += f"        const {mask['name']:48s} = {genmask_mask(mask['mask']):#010b};\n"
+          out += f"    }}\n}}\n\n"
+
+     out += "pub fn register_flags(addr: u16, value: u8) -> Option<Box<impl fmt::Debug>> {\n"
+     out += "    match addr {\n"
+     for key in header.keys():
+          if len(header[key]["bits"]) == 0 and len(header[key]["masks"]) == 0:
+               continue
+          name = key.replace("_REG", "")
+          if name == key:
+               name += "_VAL"
+          out += f"        {header[key]['value']} => Some(Box::new({name}::from_bits_truncate(value))),\n"
+     out += "        _ => None,\n"
+     out += "    }\n"
+     out += "}\n\n"
+
+     out += "pub fn register_name(addr: u16) -> &'static str {\n"
+     out += "    match addr {\n"
+     for key in header.keys():
+          out += f"        {header[key]['value']} => \"{key}\",\n"
+     out += "        _ => \"unknown\",\n"
+     out += "    }\n"
+     out += "}\n\n"
+     
+     return out
+
 def main():
      args = parse_args()
-     logfile_f = open(args.logfile, "r")
-     logfile = [x.strip() for x in logfile_f.readlines()]
+     # logfile_f = open(args.logfile, "r")
+     # logfile = [x.strip() for x in logfile_f.readlines()]
      header_f = open(args.header, "r")
      header = map_header([x.strip() for x in header_f.readlines()])
      for key in list(header.keys()):
           print(f"{key}: {header[key]}")
-     fixed_log = process_logs(logfile, header)
+     #fixed_log = process_logs(logfile, header)
      f = open(args.outfile, "w")
-     f.write("\n".join(fixed_log))
+     #f.write("\n".join(fixed_log))
+     f.write(generate_enums(header))
      f.flush()
      f.close()
      print(f"\n\nDONE!\nProcessed logs written to '{args.outfile}'")
